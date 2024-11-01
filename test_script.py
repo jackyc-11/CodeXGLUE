@@ -8,8 +8,8 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, T5Tokenizer, T5For
 import anthropic
 
 def generate_one_completion_gpt(prompt):
-    openai_api_key = os.getenv("OPENAI_API_KEY")
-    system_prompt = "You are a helpful coding assistant. Write clean, functional code. Just the code without any explanation or ticks"
+    # openai_api_key = os.getenv("OPENAI_API_KEY")
+    system_prompt = "You are a helpful coding assistant. Write clean, functional code. IMPORTANT: Just the code without any explanation or ticks or any text"
     
     client = OpenAI()
 
@@ -18,8 +18,8 @@ def generate_one_completion_gpt(prompt):
         messages=[
             {"role": "system", "content": system_prompt},
             {
-                "role": "user",
-                "content": prompt,
+                "role": "user", 
+                "content": f"Please provide only the code for the following prompt (no notes, text, or explanations):\n{prompt}"
             }
         ]
     )
@@ -99,27 +99,44 @@ def write_jsonl(filename: str, data: Iterable[Dict], append: bool = False):
                 fp.write((json.dumps(x) + "\n").encode('utf-8'))
 
 if __name__ == "__main__":
+    num_problems = 5
+    num_samples_per_problem = 3
+    model = "gpt"
+    exp_output = f"results/{model}_{num_problems}p_{num_samples_per_problem}s.jsonl"
+
     data = []
-    with open("Text-Code/text-to-code/dataset/concode/dev.json", "r") as f:
+    with open("mbpp.jsonl", "r") as f:
         for line in f:
             data.append(json.loads(line.strip()))
 
-    references = []
-    predictions = []
+    results = []
 
-    for i in range(100):
-        prompt = data[i]["nl"]
+    for i in range(num_problems):
+        prompt = data[i]["text"]
         reference_code = data[i]["code"]
-        
-        generated_code = generate_one_completion(prompt)
 
-        references.append(reference_code)
-        predictions.append(generated_code)
+        for sample_num in range(num_samples_per_problem):
+            generated_code = generate_one_completion_gpt(prompt)
 
-    result = calc_codebleu(references, predictions, "python")
+            results.append({
+                "task_id": f"MBPP/task{data[i]['task_id']}/sample{sample_num}",
+                "completion": generated_code,
+            })
+
+            print(f"\nExample {data[i]['task_id']} Sample {sample_num + 1}")
+            print(f"Prompt:\n{prompt}")
+            print(f"Reference Code:\n{reference_code}")
+            print(f"Generated Code:\n{generated_code}")
+            print("-" * 30)
+
+    write_jsonl(exp_output, results)
+
+    references = [data[i]["code"] for i in range(num_problems) for _ in range(num_samples_per_problem)]
+    predictions = [result["completion"] for result in results]
+    codebleu_result = calc_codebleu(references, predictions, "python")
 
     print("CodeBLEU result:")
-    print(result)
+    print(codebleu_result)
 
     ################################################################
     ################################################################
